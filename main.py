@@ -3,7 +3,9 @@ from discord.ext import commands
 import asyncio
 import logging
 import sys
+from aiohttp import web
 from config import Config
+from cogs.bridge import BridgeCog
 
 # Configure Logging
 logging.basicConfig(
@@ -16,7 +18,7 @@ logging.basicConfig(
 
 logger = logging.getLogger("FerroxBot.Main")
 
-# Define Default Intents (Works out of the box without requiring Privileged Gateway Intents)
+# Define Default Intents
 intents = discord.Intents.default()
 intents.guilds = True
 
@@ -55,12 +57,38 @@ class FerroxBot(commands.Bot):
         logger.info(f"HTTP Bridge  : http://localhost:{Config.BRIDGE_HTTP_PORT}")
         logger.info("=" * 60)
 
+async def run_headless_server():
+    """Runs bridge HTTP webhook receiver in headless mode when no Discord Token is provided."""
+    logger.info("=" * 60)
+    logger.info("⚡ Ferrox Bridge Bot starting in HEADLESS WEBHOOK MODE")
+    logger.info(f"HTTP Bridge  : http://0.0.0.0:{Config.BRIDGE_HTTP_PORT}")
+    logger.info(f"Docs URL     : {Config.DOCS_URL}")
+    logger.info("All telemetry webhooks (trades, sentinel alerts, mesh status) are active.")
+    logger.info("=" * 60)
+    
+    # Create mock bot to mount BridgeCog
+    class MockBot:
+        guilds = []
+        latency = 0.005
+
+    mock_bot = MockBot()
+    bridge_cog = BridgeCog(mock_bot)
+    await bridge_cog.cog_load()
+
+    try:
+        # Keep running
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        await bridge_cog.cog_unload()
+
 async def main():
     Config.validate()
 
     if not Config.DISCORD_TOKEN or Config.DISCORD_TOKEN == "your_discord_bot_token_here":
-        logger.error("Cannot start bot without a valid DISCORD_TOKEN. Please set it in .env file.")
-        sys.exit(1)
+        logger.info("DISCORD_TOKEN not set. Launching Telemetry Bridge in Headless Mode.")
+        await run_headless_server()
+        return
 
     bot = FerroxBot()
     async with bot:
